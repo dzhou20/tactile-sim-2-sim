@@ -242,12 +242,12 @@ def _raycast_distances(physx_query, origins, direction, max_distance):
     return distances
 
 
-def _distance_to_insert(distance, max_distance):
-    # insert(压入量)公式:
-    #   insert = max(0, max_distance - distance)
+def _distance_to_delta(distance, max_distance):
+    # delta(压入量)公式:
+    #   delta = max(0, max_distance - distance)
     # 说明:
     # - distance 为 ray 命中距离
-    # - 无命中或超出 max_distance 视为无接触，insert=0
+    # - 无命中或超出 max_distance 视为无接触，delta=0
     if distance is None:
         return 0.0
     if distance > max_distance:
@@ -255,14 +255,77 @@ def _distance_to_insert(distance, max_distance):
     return max(0.0, max_distance - distance)
 
 
-def _insert_to_force(insert_value, max_distance, force_max):
+def _delta_to_force_legacy(delta_value, max_distance, force_max):
     # force 映射公式(线性归一化):
-    #   force = (insert / max_distance) * force_max
+    #   force = (delta / max_distance) * force_max
     # 等价写法:
     #   force = max(0, (max_distance - distance) / max_distance) * force_max
-    if insert_value is None:
+    if delta_value is None:
         return 0.0
-    return (insert_value / max(max_distance, 1e-6)) * force_max
+    return (delta_value / max(max_distance, 1e-6)) * force_max
+
+
+def _delta_to_force_spring_damper(delta_value, delta_dot, spring_k, damping_c):
+    # 法向力(弹簧+阻尼)公式:
+    #   Fn = k * delta + c * delta_dot
+    # 单边接触约束:
+    #   无接触(delta<=0)时 Fn=0，且 Fn 不允许为负
+    if delta_value is None or delta_value <= 0.0:
+        return 0.0
+    fn = float(spring_k) * float(delta_value) + float(damping_c) * float(delta_dot)
+    return max(0.0, fn)
+
+
+class RaySignalProcessor:
+    """Lightweight stateful processor for distance/delta/delta_dot/force signals."""
+
+    def __init__(
+        self,
+        max_distance: float,
+        force_max: float,
+        force_mapping: str,
+        spring_k: float,
+        damping_c: float,
+    ):
+        self.max_distance = float(max_distance)
+        self.force_max = float(force_max)
+        self.force_mapping = str(force_mapping)
+        self.spring_k = float(spring_k)
+        self.damping_c = float(damping_c)
+        self.prev_timestamp = None
+        self.prev_delta_map = {}
+
+    @staticmethod
+    def _delta_to_delta_dot(curr_delta: float, prev_delta: float, dt: float) -> float:
+        # delta_dot(侵入速度)公式:
+        #   delta_dot = (delta_t - delta_t-1) / dt
+        # 若首帧或 dt 过小，则返回 0，避免除零与数值爆炸。
+        if prev_delta is None or dt <= 1e-6:
+            return 0.0
+        return (curr_delta - prev_delta) / dt
+
+    def update(self, distances, timestamp: float):
+        now = float(timestamp)
+        dt = 0.0 if self.prev_timestamp is None else max(0.0, now - self.prev_timestamp)
+        records = []
+        for r, c, d in distances:
+            delta_value = _distance_to_delta(d, self.max_distance)
+            prev_delta = self.prev_delta_map.get((int(r), int(c)))
+            delta_dot = self._delta_to_delta_dot(delta_value, prev_delta, dt)
+            if self.force_mapping == "legacy":
+                force_value = _delta_to_force_legacy(delta_value, self.max_distance, self.force_max)
+            else:
+                force_value = _delta_to_force_spring_damper(
+                    delta_value,
+                    delta_dot,
+                    self.spring_k,
+                    self.damping_c,
+                )
+            records.append((r, c, d, delta_value, delta_dot, force_value))
+        for r, c, _, delta_value, _, _ in records:
+            self.prev_delta_map[(int(r), int(c))] = delta_value
+        self.prev_timestamp = now
+        return records, dt
 
 
 def _format_stage_unit(meters_per_unit: float) -> str:
@@ -284,7 +347,16 @@ def main() -> None:
     parser.add_argument("--ray-padding", type=float, default=0.002, help="Ray 起点离表面的偏移(米)")
     parser.add_argument("--ray-update-interval", type=float, default=0.1, help="Ray 数据刷新间隔(秒)")
     parser.add_argument("--ray-log-dir", type=str, default="test/ray_logs", help="Ray 日志输出目录")
-    parser.add_argument("--force-max", type=float, default=1.0, help="距离->力 映射的最大力")
+    parser.add_argument("--force-max", type=float, default=1.0, help="旧线性映射(legacy)的最大力")
+    parser.add_argument(
+        "--force-mapping",
+        type=str,
+        default="spring_damper",
+        choices=["spring_damper", "legacy"],
+        help="力映射模式: spring_damper(默认) 或 legacy",
+    )
+    parser.add_argument("--spring-k", type=float, default=1000.0, help="弹簧刚度 k (N/m)")
+    parser.add_argument("--damping-c", type=float, default=5.0, help="阻尼系数 c (N·s/m)")
     parser.add_argument("--ray-direction", type=str, default="+x", help="Ray 方向: -x 或 +x")
     parser.add_argument("--irregular-seed", type=int, default=0, help="不规则网格随机种子")
     parser.add_argument("--irregular-size", type=float, default=0.08, help="不规则网格尺寸")
@@ -367,7 +439,8 @@ def main() -> None:
     ray_log_path = os.path.join(args.ray_log_dir, f"ray_distances_{run_id}.json")
     ray_log_csv = os.path.join(args.ray_log_dir, f"ray_distances_{run_id}.csv")
     force_log_csv = os.path.join(args.ray_log_dir, f"ray_forces_{run_id}.csv")
-    insert_log_csv = os.path.join(args.ray_log_dir, f"ray_inserts_{run_id}.csv")
+    delta_log_csv = os.path.join(args.ray_log_dir, f"ray_deltas_{run_id}.csv")
+    delta_dot_log_csv = os.path.join(args.ray_log_dir, f"ray_delta_dots_{run_id}.csv")
 
     # Auto-start external visualization (default on unless --no-auto-view)
     auto_view = args.auto_view or not args.no_auto_view
@@ -422,7 +495,70 @@ def main() -> None:
     last_ray_update = 0.0
     csv_header_written = False
     force_header_written = False
-    insert_header_written = False
+    delta_header_written = False
+    delta_dot_header_written = False
+    signal_processor = RaySignalProcessor(
+        max_distance=float(args.ray_max_distance),
+        force_max=float(args.force_max),
+        force_mapping=str(args.force_mapping),
+        spring_k=float(args.spring_k),
+        damping_c=float(args.damping_c),
+    )
+
+    def _update_and_log(now: float) -> None:
+        nonlocal last_ray_update
+        nonlocal csv_header_written
+        nonlocal force_header_written
+        nonlocal delta_header_written
+        nonlocal delta_dot_header_written
+
+        distances = _raycast_distances(physx_query, ray_origins, ray_dir, args.ray_max_distance)
+        records, dt = signal_processor.update(distances, now)
+        payload = {
+            "timestamp": now,
+            "delta_t": dt,
+            "grid_size": args.ray_grid_size,
+            "max_distance": args.ray_max_distance,
+            "direction": args.ray_direction,
+            "force_mapping": args.force_mapping,
+            "spring_k": args.spring_k,
+            "damping_c": args.damping_c,
+            "distances": distances,
+            "deltas": [(r, c, delta) for r, c, _, delta, _, _ in records],
+            "delta_dots": [(r, c, delta_dot) for r, c, _, _, delta_dot, _ in records],
+            "forces": [(r, c, f) for r, c, _, _, _, f in records],
+        }
+        with open(ray_log_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        with open(ray_log_csv, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not csv_header_written:
+                writer.writerow(["timestamp", "row", "col", "distance"])
+                csv_header_written = True
+            for r, c, d, _, _, _ in records:
+                writer.writerow([now, r, c, "" if d is None else d])
+        with open(delta_log_csv, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not delta_header_written:
+                writer.writerow(["timestamp", "row", "col", "delta"])
+                delta_header_written = True
+            for r, c, _, delta, _, _ in records:
+                writer.writerow([now, r, c, delta])
+        with open(delta_dot_log_csv, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not delta_dot_header_written:
+                writer.writerow(["timestamp", "row", "col", "delta_dot"])
+                delta_dot_header_written = True
+            for r, c, _, _, delta_dot, _ in records:
+                writer.writerow([now, r, c, delta_dot])
+        with open(force_log_csv, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not force_header_written:
+                writer.writerow(["timestamp", "row", "col", "force"])
+                force_header_written = True
+            for r, c, _, _, _, force in records:
+                writer.writerow([now, r, c, force])
+        last_ray_update = now
 
     try:
         if args.keep_open:
@@ -430,45 +566,7 @@ def main() -> None:
                 simulation_app.update()
                 now = time.time()
                 if ray_origins and (now - last_ray_update >= args.ray_update_interval):
-                    distances = _raycast_distances(physx_query, ray_origins, ray_dir, args.ray_max_distance)
-                    records = []
-                    for r, c, d in distances:
-                        insert_value = _distance_to_insert(d, args.ray_max_distance)
-                        force_value = _insert_to_force(insert_value, args.ray_max_distance, args.force_max)
-                        records.append((r, c, d, insert_value, force_value))
-                    payload = {
-                        "timestamp": now,
-                        "grid_size": args.ray_grid_size,
-                        "max_distance": args.ray_max_distance,
-                        "direction": args.ray_direction,
-                        "distances": distances,
-                        "inserts": [(r, c, ins) for r, c, _, ins, _ in records],
-                        "forces": [(r, c, f) for r, c, _, _, f in records],
-                    }
-                    with open(ray_log_path, "w", encoding="utf-8") as f:
-                        json.dump(payload, f)
-                    with open(ray_log_csv, "a", newline="", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        if not csv_header_written:
-                            writer.writerow(["timestamp", "row", "col", "distance"])
-                            csv_header_written = True
-                        for r, c, d, _, _ in records:
-                            writer.writerow([now, r, c, "" if d is None else d])
-                    with open(insert_log_csv, "a", newline="", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        if not insert_header_written:
-                            writer.writerow(["timestamp", "row", "col", "insert"])
-                            insert_header_written = True
-                        for r, c, _, ins, _ in records:
-                            writer.writerow([now, r, c, "" if ins is None else ins])
-                    with open(force_log_csv, "a", newline="", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        if not force_header_written:
-                            writer.writerow(["timestamp", "row", "col", "force"])
-                            force_header_written = True
-                        for r, c, _, _, force in records:
-                            writer.writerow([now, r, c, force])
-                    last_ray_update = now
+                    _update_and_log(now)
         else:
             # Keep the app alive for a short time to ensure the stage is visible
             for _ in range(max(1, int(args.close_after_frames))):
@@ -477,45 +575,7 @@ def main() -> None:
                 simulation_app.update()
                 now = time.time()
                 if ray_origins and (now - last_ray_update >= args.ray_update_interval):
-                    distances = _raycast_distances(physx_query, ray_origins, ray_dir, args.ray_max_distance)
-                    records = []
-                    for r, c, d in distances:
-                        insert_value = _distance_to_insert(d, args.ray_max_distance)
-                        force_value = _insert_to_force(insert_value, args.ray_max_distance, args.force_max)
-                        records.append((r, c, d, insert_value, force_value))
-                    payload = {
-                        "timestamp": now,
-                        "grid_size": args.ray_grid_size,
-                        "max_distance": args.ray_max_distance,
-                        "direction": args.ray_direction,
-                        "distances": distances,
-                        "inserts": [(r, c, ins) for r, c, _, ins, _ in records],
-                        "forces": [(r, c, f) for r, c, _, _, f in records],
-                    }
-                    with open(ray_log_path, "w", encoding="utf-8") as f:
-                        json.dump(payload, f)
-                    with open(ray_log_csv, "a", newline="", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        if not csv_header_written:
-                            writer.writerow(["timestamp", "row", "col", "distance"])
-                            csv_header_written = True
-                        for r, c, d, _, _ in records:
-                            writer.writerow([now, r, c, "" if d is None else d])
-                    with open(insert_log_csv, "a", newline="", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        if not insert_header_written:
-                            writer.writerow(["timestamp", "row", "col", "insert"])
-                            insert_header_written = True
-                        for r, c, _, ins, _ in records:
-                            writer.writerow([now, r, c, "" if ins is None else ins])
-                    with open(force_log_csv, "a", newline="", encoding="utf-8") as f:
-                        writer = csv.writer(f)
-                        if not force_header_written:
-                            writer.writerow(["timestamp", "row", "col", "force"])
-                            force_header_written = True
-                        for r, c, _, _, force in records:
-                            writer.writerow([now, r, c, force])
-                    last_ray_update = now
+                    _update_and_log(now)
     finally:
         try:
             simulation_app.close()
