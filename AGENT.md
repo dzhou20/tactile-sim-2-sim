@@ -1,0 +1,1 @@
+Answer Everything in Chinese. (Use Extended Thinking
