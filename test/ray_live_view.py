@@ -69,7 +69,7 @@ def main() -> None:
     parser.add_argument("--json", type=str, default="test/ray_logs/ray_distances.json", help="Ray 实时数据 JSON")
     parser.add_argument("--interval", type=float, default=0.1, help="刷新间隔(秒)")
     parser.add_argument("--vmin", type=float, default=0.0, help="颜色最小值(力)")
-    parser.add_argument("--vmax", type=float, default=1.0, help="颜色最大值(力)")
+    parser.add_argument("--vmax", type=float, default=5.0, help="颜色最大值(力)")
     parser.add_argument("--cmap", type=str, default="viridis", help="Matplotlib colormap")
     parser.add_argument("--show-text", action="store_true", help="在格子里显示数值")
     parser.add_argument("--show-distance", action="store_true", help="显示 distance 窗口（默认关闭）")

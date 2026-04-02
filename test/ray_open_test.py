@@ -18,9 +18,22 @@ sys.dont_write_bytecode = True
 from isaacsim.simulation_app import SimulationApp
 
 
-def _get_usd_path() -> str:
-    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    return os.path.join(repo_root, "assets", "isaac_sim", "ray_basic_test.usd")
+def _get_repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+def _get_usd_path(usd_path: str | None = None) -> str:
+    repo_root = _get_repo_root()
+    default_path = os.path.join(repo_root, "assets", "isaac_sim", "ray_basic_test.usd")
+    if not usd_path:
+        return default_path
+    if os.path.isabs(usd_path):
+        return usd_path
+
+    cwd_path = os.path.abspath(usd_path)
+    if os.path.exists(cwd_path):
+        return cwd_path
+    return os.path.join(repo_root, usd_path)
 
 def _ensure_big_cube(stage, cube_path="/World/BigRayCube", size=0.2):
     from pxr import UsdGeom, Gf
@@ -56,14 +69,29 @@ def _ensure_big_sphere(stage, sphere_path="/World/BigSphere", radius=0.15, cube_
     return sphere.GetPrim()
 
 
-def _apply_rigidbody(prim, mass=1.0, enable_gravity=True, kinematic=False):
-    from pxr import UsdPhysics, PhysxSchema
+def _apply_rigidbody(
+    prim,
+    mass=1.0,
+    enable_gravity=True,
+    kinematic=False,
+    collision_approximation: str | None = None,
+):
+    from pxr import UsdGeom, UsdPhysics, PhysxSchema
     if not prim or not prim.IsValid():
         return
     if not prim.HasAPI(UsdPhysics.CollisionAPI):
         UsdPhysics.CollisionAPI.Apply(prim)
     if not prim.HasAPI(PhysxSchema.PhysxCollisionAPI):
         PhysxSchema.PhysxCollisionAPI.Apply(prim)
+    if prim.IsA(UsdGeom.Mesh) and collision_approximation is not None:
+        mesh_collision = UsdPhysics.MeshCollisionAPI(prim)
+        if not mesh_collision:
+            mesh_collision = UsdPhysics.MeshCollisionAPI.Apply(prim)
+        approximation_attr = mesh_collision.GetApproximationAttr()
+        if approximation_attr.IsValid():
+            approximation_attr.Set(collision_approximation)
+        else:
+            mesh_collision.CreateApproximationAttr().Set(collision_approximation)
     if not prim.HasAPI(UsdPhysics.RigidBodyAPI):
         UsdPhysics.RigidBodyAPI.Apply(prim)
     if not prim.HasAPI(UsdPhysics.MassAPI):
@@ -98,7 +126,15 @@ def _ensure_irregular_mesh(
     size=0.08,
 ):
     from pxr import UsdGeom, Gf, Usd
-    if stage.GetPrimAtPath(mesh_path).IsValid():
+    prim = stage.GetPrimAtPath(mesh_path)
+    if prim and prim.IsValid():
+        _apply_rigidbody(
+            prim,
+            mass=1.0,
+            enable_gravity=True,
+            kinematic=False,
+            collision_approximation="convexDecomposition",
+        )
         return
     random.seed(seed)
 
@@ -155,7 +191,13 @@ def _ensure_irregular_mesh(
     else:
         mesh_pos = Gf.Vec3d(0.0, 0.3, 0.1)
         UsdGeom.XformCommonAPI(mesh).SetTranslate(mesh_pos)
-    _apply_rigidbody(mesh.GetPrim(), mass=1.0, enable_gravity=True, kinematic=False)
+    _apply_rigidbody(
+        mesh.GetPrim(),
+        mass=1.0,
+        enable_gravity=True,
+        kinematic=False,
+        collision_approximation="convexDecomposition",
+    )
 
     # 同位置放一个球体用于观察/记录
     if not stage.GetPrimAtPath(marker_path).IsValid():
@@ -363,9 +405,15 @@ def main() -> None:
     parser.add_argument("--auto-view", action="store_true", help="自动启动外部可视化")
     parser.add_argument("--no-auto-view", action="store_true", help="不自动启动外部可视化")
     parser.add_argument("--view-vmin", type=float, default=0.0, help="可视化颜色最小值")
-    parser.add_argument("--view-vmax", type=float, default=0.5, help="可视化颜色最大值")
+    parser.add_argument("--view-vmax", type=float, default=5.0, help="可视化颜色最大值")
     parser.add_argument("--view-cmap", type=str, default="inferno", help="可视化 colormap")
     parser.add_argument("--view-interval", type=float, default=0.1, help="可视化刷新间隔(秒)")
+    parser.add_argument(
+        "--usd-path",
+        type=str,
+        default=None,
+        help="USD 场景路径；支持绝对路径，或相对当前目录/仓库根目录的路径",
+    )
     args = parser.parse_args()
 
     # Launch Isaac Sim and open the USD stage
@@ -374,7 +422,7 @@ def main() -> None:
     # Import after SimulationApp is initialized
     import omni.usd
 
-    usd_path = _get_usd_path()
+    usd_path = _get_usd_path(args.usd_path)
     if not os.path.exists(usd_path):
         raise FileNotFoundError(f"USD file not found: {usd_path}")
 
