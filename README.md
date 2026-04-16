@@ -8,8 +8,8 @@ Run from repo root:
 python test/ray_open_test.py --keep-open --ray-padding 0.0005
 ```
 
-This starts Isaac Sim ray sampling and writes logs (`distance`, `delta`, `delta_dot`, `force`) to `test/ray_logs/`.
-该命令启动 Isaac Sim 射线采样，并在 `test/ray_logs/` 写出日志（`distance`、`delta`、`delta_dot`、`force`）。
+This starts Isaac Sim ray sampling and writes logs (`distance`, `delta`, `delta_dot`, `force`) to `data/ray_logs/` under the repo root.
+该命令启动 Isaac Sim 射线采样，并在仓库根目录下的 `data/ray_logs/` 写出日志（`distance`、`delta`、`delta_dot`、`force`）。
 
 ## Commands | 命令说明
 

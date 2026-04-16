@@ -28,3 +28,5 @@ Thumbs.db
 *.log
 test/ray_logs/
 test/test/ray_logs/
+assets/isaac_sim/.thumbs/
+data/
