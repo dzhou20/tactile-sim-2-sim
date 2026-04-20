@@ -30,3 +30,7 @@ test/ray_logs/
 test/test/ray_logs/
 assets/isaac_sim/.thumbs/
 data/
+
+# Local agent / Codex files
+AGENT.md
+.codex/

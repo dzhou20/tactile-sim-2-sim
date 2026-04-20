@@ -11,6 +11,26 @@ python test/ray_open_test.py --keep-open --ray-padding 0.0005
 This starts Isaac Sim ray sampling and writes logs (`distance`, `delta`, `delta_dot`, `force`) to `data/ray_logs/` under the repo root.
 该命令启动 Isaac Sim 射线采样，并在仓库根目录下的 `data/ray_logs/` 写出日志（`distance`、`delta`、`delta_dot`、`force`）。
 
+## Environment Setup | 运行环境配置
+
+### Validated Environment | 已验证环境
+
+The code in this repository is currently known to run in the following environment:
+这个仓库当前已知可运行的环境如下：
+
+- Conda environment name: `env_visualtac`
+- Conda 环境名：`env_visualtac`
+- Python: `3.11.15`
+- Isaac Sim: `5.1.0.0`
+- Isaac Lab: `0.54.3`
+- `isaaclab-contrib`: `0.0.2`
+- PyTorch: `2.7.0+cu128`
+- NumPy: `1.26.0`
+- Matplotlib: `3.10.3`
+
+In general, this repository should run in environments with Isaac Sim `>= 4.5.0`.
+总体上，这个仓库在 Isaac Sim `>= 4.5.0` 的运行环境中都应该可以工作。
+
 ## Commands | 命令说明
 
 ### 1) Main simulation script | 主仿真脚本
@@ -30,6 +50,30 @@ Important options | 常用参数:
 - `--force-max <value>`: max force for `legacy` linear mapping only. | 仅用于 `legacy` 线性映射的最大力参数。
 - `--ray-direction {+x,-x}`: ray direction. | Ray 方向。
 - `--no-auto-view`: disable auto-launch of external viewer. | 不自动启动外部可视化。
+
+### Target Body Tracking | 目标物体持续跟踪
+
+The current contact-state logic in `test/ray_open_test.py` tracks a specific target rigid body, currently hard-coded as `/World/Cylinder_Test`.
+当前 `test/ray_open_test.py` 里的接触状态逻辑会持续跟踪一个特定的目标刚体，目前默认写死为 `/World/Cylinder_Test`。
+
+This is intentional: the tracker is not only checking whether a ray hit something in the current frame. It is maintaining a continuous contact episode for the same object across frames.
+这不是单纯判断“这一帧有没有命中某个物体”，而是为了在跨帧过程中持续维护“同一个物体上的连续接触 episode”。
+
+Why this target is tracked continuously:
+为什么要持续跟踪这个目标物体：
+- Only hits on the target body are treated as valid contact for the taxel contact state machine.
+- 只有命中目标刚体时，taxel contact 状态机才会认为这是有效接触。
+- On contact start, the code stores the same world contact point in both the sensor local frame and the target-body local frame.
+- 在接触开始时，代码会把同一个世界系接触点同时记录到传感器局部坐标系和目标物体局部坐标系中。
+- During later frames of the same contact episode, those anchors are reused to compute relative motion in the sensor frame, including `d_A`, `d_t_A`, `v_t_A`, `xi_t`, and `F_t_candidate`.
+- 在同一个接触 episode 的后续帧里，会复用这些锚点来计算传感器坐标系下的相对运动，包括 `d_A`、`d_t_A`、`v_t_A`、`xi_t` 和 `F_t_candidate`。
+
+Practical implication:
+实际含义：
+- If `/World/Cylinder_Test` does not exist in the loaded USD stage, the target-contact tracker will not report meaningful target contact states.
+- 如果加载的 USD 场景里没有 `/World/Cylinder_Test`，那么目标接触跟踪器就不会产出有意义的目标接触状态。
+- If rays hit another object, that hit may still appear in raw ray results, but it will not be treated as tracked target contact by this logic.
+- 如果 Ray 打到了别的物体，这些命中仍可能出现在原始 ray 结果里，但不会被这套逻辑当作“持续跟踪的目标接触”。
 
 ### 2) External viewer script | 外部可视化脚本
 

@@ -704,6 +704,9 @@ class PerTaxelContactTracker:
                 state["anchor_initialized"] = False
                 state["xi_t"] = (0.0, 0.0, 0.0)
                 state["d_t_prev"] = (0.0, 0.0, 0.0)
+                # End the current contact episode completely so the next
+                # re-contact starts with a fresh time base.
+                state["last_timestamp"] = None
                 state["contact_mode"] = None
 
             if started:
@@ -916,13 +919,6 @@ def main() -> None:
 
         cube_prim = _ensure_big_cube(stage, cube_path=cube_path)
         _apply_rigidbody(cube_prim, mass=2.0, enable_gravity=True, kinematic=False)
-        sphere_prim = _ensure_big_sphere(stage, cube_path=cube_path)
-        _apply_rigidbody(sphere_prim, mass=3.0, enable_gravity=True, kinematic=False)
-        _ensure_irregular_mesh(
-            stage,
-            seed=int(args.irregular_seed),
-            size=float(args.irregular_size),
-        )
         _ensure_ray_marker(
             stage,
             cube_path=cube_path,
