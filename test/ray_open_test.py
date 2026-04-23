@@ -7,7 +7,6 @@ import json
 import math
 import time
 import csv
-import random
 import subprocess
 import atexit
 import signal
@@ -52,28 +51,6 @@ def _ensure_big_cube(stage, cube_path="/World/BigRayCube", size=0.2):
     UsdGeom.XformCommonAPI(cube).SetTranslate(Gf.Vec3d(0.0, 0.0, size * 0.5))
     return cube.GetPrim()
 
-
-def _ensure_big_sphere(stage, sphere_path="/World/BigSphere", radius=0.15, cube_path="/World/BigRayCube", padding=0.02):
-    from pxr import UsdGeom, Gf, Usd
-    prim = stage.GetPrimAtPath(sphere_path)
-    if prim and prim.IsValid():
-        return prim
-    sphere = UsdGeom.Sphere.Define(stage, sphere_path)
-    sphere.GetRadiusAttr().Set(radius)
-    # Place along the ray path: in front of the cube on the +X side
-    cube_prim = stage.GetPrimAtPath(cube_path)
-    if cube_prim and cube_prim.IsValid():
-        xformable = UsdGeom.Xformable(cube_prim)
-        xform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-        center = xform.Transform(Gf.Vec3d(0.0, 0.0, 0.0))
-        cube = UsdGeom.Cube(cube_prim)
-        size = float(cube.GetSizeAttr().Get() or 0.2)
-        half = size * 0.5
-        x = center[0] + (half + padding + radius)
-        UsdGeom.XformCommonAPI(sphere).SetTranslate(Gf.Vec3d(x, center[1], center[2]))
-    else:
-        UsdGeom.XformCommonAPI(sphere).SetTranslate(Gf.Vec3d(-0.3, 0.0, radius))
-    return sphere.GetPrim()
 
 
 def _apply_rigidbody(
@@ -124,95 +101,6 @@ def _apply_rigidbody(
         pass
 
 
-def _ensure_irregular_mesh(
-    stage,
-    mesh_path="/World/IrregularMesh",
-    marker_path="/World/IrregularMarker",
-    anchor_cube_path="/World/BigRayCube",
-    seed=0,
-    size=0.08,
-):
-    from pxr import UsdGeom, Gf, Usd
-    prim = stage.GetPrimAtPath(mesh_path)
-    if prim and prim.IsValid():
-        _apply_rigidbody(
-            prim,
-            mass=1.0,
-            enable_gravity=True,
-            kinematic=False,
-            collision_approximation="convexDecomposition",
-        )
-        return
-    random.seed(seed)
-
-    # Start from a cube and randomly perturb each corner
-    half = size * 0.5
-    base = [
-        (-half, -half, -half),
-        (half, -half, -half),
-        (half, half, -half),
-        (-half, half, -half),
-        (-half, -half, half),
-        (half, -half, half),
-        (half, half, half),
-        (-half, half, half),
-    ]
-    points = []
-    jitter = size * 0.35
-    for x, y, z in base:
-        points.append(
-            Gf.Vec3f(
-                x + random.uniform(-jitter, jitter),
-                y + random.uniform(-jitter, jitter),
-                z + random.uniform(-jitter, jitter),
-            )
-        )
-
-    # 12 triangles (2 per face)
-    face_counts = [3] * 12
-    face_indices = [
-        0, 1, 2, 0, 2, 3,  # -Z
-        4, 6, 5, 4, 7, 6,  # +Z
-        0, 4, 5, 0, 5, 1,  # -Y
-        3, 2, 6, 3, 6, 7,  # +Y
-        0, 3, 7, 0, 7, 4,  # -X
-        1, 5, 6, 1, 6, 2,  # +X
-    ]
-
-    mesh = UsdGeom.Mesh.Define(stage, mesh_path)
-    mesh.CreatePointsAttr(points)
-    mesh.CreateFaceVertexCountsAttr(face_counts)
-    mesh.CreateFaceVertexIndicesAttr(face_indices)
-    mesh.CreateDisplayColorAttr().Set([Gf.Vec3f(0.2, 0.7, 0.9)])
-
-    # Place it near the +X side of the cube (if available)
-    cube_prim = stage.GetPrimAtPath(anchor_cube_path)
-    if cube_prim and cube_prim.IsValid():
-        xformable = UsdGeom.Xformable(cube_prim)
-        xform = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-        center = xform.Transform(Gf.Vec3d(0.0, 0.0, 0.0))
-        # 放到立方体旁边 (+Y 方向)，避免与 Ray 网格重叠
-        offset = Gf.Vec3d(0.0, size * 2.0, size * 0.6)
-        mesh_pos = center + offset
-        UsdGeom.XformCommonAPI(mesh).SetTranslate(mesh_pos)
-    else:
-        mesh_pos = Gf.Vec3d(0.0, 0.3, 0.1)
-        UsdGeom.XformCommonAPI(mesh).SetTranslate(mesh_pos)
-    _apply_rigidbody(
-        mesh.GetPrim(),
-        mass=1.0,
-        enable_gravity=True,
-        kinematic=False,
-        collision_approximation="convexDecomposition",
-    )
-
-    # 同位置放一个球体用于观察/记录
-    if not stage.GetPrimAtPath(marker_path).IsValid():
-        marker = UsdGeom.Sphere.Define(stage, marker_path)
-        marker.GetRadiusAttr().Set(max(0.01, size * 0.25))
-        marker.CreateDisplayColorAttr().Set([Gf.Vec3f(0.9, 0.3, 0.3)])
-        UsdGeom.XformCommonAPI(marker).SetTranslate(mesh_pos)
-        _apply_rigidbody(marker.GetPrim(), mass=0.5, enable_gravity=True, kinematic=False)
 
 def _get_face_sign(face_selector: str) -> float:
     return 1.0 if str(face_selector).strip().lower() == "+x" else -1.0
