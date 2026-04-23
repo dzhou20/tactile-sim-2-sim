@@ -49,12 +49,13 @@ Important options | 常用参数:
 - `--damping-c <value>`: damping coefficient `c` in N·s/m (used by `spring_damper`). | 阻尼系数 `c`，单位 N·s/m（`spring_damper` 使用）。
 - `--force-max <value>`: max force for `legacy` linear mapping only. | 仅用于 `legacy` 线性映射的最大力参数。
 - `--ray-direction {+x,-x}`: ray direction. | Ray 方向。
+- `--target-contact-body-path <prim_path>`: target rigid body to track continuously for taxel contact state (default: `/World/Cylinder_Test`). | 用于持续跟踪 taxel 接触状态的目标刚体 prim path（默认：`/World/Cylinder_Test`）。
 - `--no-auto-view`: disable auto-launch of external viewer. | 不自动启动外部可视化。
 
 ### Target Body Tracking | 目标物体持续跟踪
 
-The current contact-state logic in `test/ray_open_test.py` tracks a specific target rigid body, currently hard-coded as `/World/Cylinder_Test`.
-当前 `test/ray_open_test.py` 里的接触状态逻辑会持续跟踪一个特定的目标刚体，目前默认写死为 `/World/Cylinder_Test`。
+The current contact-state logic in `test/ray_open_test.py` tracks a specific target rigid body. By default, the target is `/World/Cylinder_Test`, and it can be overridden with `--target-contact-body-path`.
+当前 `test/ray_open_test.py` 里的接触状态逻辑会持续跟踪一个特定的目标刚体。默认目标是 `/World/Cylinder_Test`，也可以通过 `--target-contact-body-path` 覆盖。
 
 This is intentional: the tracker is not only checking whether a ray hit something in the current frame. It is maintaining a continuous contact episode for the same object across frames.
 这不是单纯判断“这一帧有没有命中某个物体”，而是为了在跨帧过程中持续维护“同一个物体上的连续接触 episode”。
@@ -70,8 +71,8 @@ Why this target is tracked continuously:
 
 Practical implication:
 实际含义：
-- If `/World/Cylinder_Test` does not exist in the loaded USD stage, the target-contact tracker will not report meaningful target contact states.
-- 如果加载的 USD 场景里没有 `/World/Cylinder_Test`，那么目标接触跟踪器就不会产出有意义的目标接触状态。
+- If the configured target body path does not exist in the loaded USD stage, the target-contact tracker will not report meaningful target contact states.
+- 如果配置的目标刚体路径在当前加载的 USD 场景里不存在，那么目标接触跟踪器就不会产出有意义的目标接触状态。
 - If rays hit another object, that hit may still appear in raw ray results, but it will not be treated as tracked target contact by this logic.
 - 如果 Ray 打到了别的物体，这些命中仍可能出现在原始 ray 结果里，但不会被这套逻辑当作“持续跟踪的目标接触”。
 
@@ -147,3 +148,31 @@ Notes | 说明:
   无命中或超阈值时 `delta=0`。
 - `delta_dot > 0` usually means increasing penetration; `< 0` means release.  
   `delta_dot > 0` 通常表示压入加深，`< 0` 表示回弹/离开。
+
+## Temporal Considerations | 时序相关的潜在误差 
+
+### Discrete sampling and velocity estimation | 离散采样与速度估计误差
+
+All time-derivative quantities (`delta_dot`, `v_t_A`) are computed by finite difference over the sampling interval `dt`:  
+所有时间导数量（`delta_dot`、`v_t_A`）均通过采样间隔 `dt` 的有限差分计算：
+
+```
+delta_dot = (delta[i] - delta[i-1]) / dt
+```
+
+When the underlying signal is not smoothly differentiable — e.g., at the moment of contact onset or during fast impacts — this discrete approximation introduces transient errors proportional to `1/dt`. The error is bounded in practice because `d_t_A` is derived from rigid-body transforms (not raw ray hits), and the default `dt = 0.1 s` is large enough to avoid noise amplification.  
+当底层信号不可连续微分时（如接触瞬间或快速碰撞），离散近似引入的瞬态误差与 `1/dt` 成正比。由于 `d_t_A` 来自刚体变换而非原始射线命中点，且默认 `dt = 0.1 s` 足够大，噪声放大效应在实践中是有界的。
+
+For reference, typical sampling rates:  
+常见采样频率参考：
+- Isaac Sim physics: ~60–200 Hz (dt ≈ 5–17 ms)  
+  Isaac Sim 物理仿真：~60–200 Hz（dt ≈ 5–17 ms）
+- Real tactile sensors (e.g. DIGIT, GelSight): 30–60 Hz (dt ≈ 17–33 ms)  
+  真实触觉传感器（如 DIGIT、GelSight）：30–60 Hz（dt ≈ 17–33 ms）
+- This script default: 10 Hz (dt = 100 ms) — conservative, reduces noise sensitivity  
+  本脚本默认：10 Hz（dt = 100 ms）——偏保守，降低噪声敏感性
+
+### Damping term during slow contact | 缓慢接触时阻尼项的影响
+
+The damping contribution `c * v_t_A` is proportional to contact velocity. During slow, deliberate manipulation — which is typical in dexterous grasping tasks — contact velocities are low (order of 0.01–0.05 m/s), so the damping force is small relative to the spring term `k * d_t_A`. This aligns with the practical emphasis in manipulation research on **policy robustness over peak-speed grasping**: policies trained or evaluated at low contact speeds are less sensitive to damping coefficient tuning, and sim-to-real transfer of the tangential force signal is more reliable in this regime.  
+阻尼项 `c * v_t_A` 与接触速度成正比。在灵巧抓取任务中，接触运动通常缓慢且受控（速度量级约 0.01–0.05 m/s），阻尼力相对弹簧项 `k * d_t_A` 较小。这与 manipulation 研究中**优先策略鲁棒性而非极速抓取**的导向一致：在低接触速度下训练或评估的策略对阻尼系数的敏感性更低，切向力信号的 sim-to-real 迁移在此区间也更可靠。

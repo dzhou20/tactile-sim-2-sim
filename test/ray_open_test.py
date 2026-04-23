@@ -857,6 +857,12 @@ def main() -> None:
     parser.add_argument("--debug-ray-limit", type=int, default=5, help="每次调试输出最多打印多少条 Ray")
     parser.add_argument("--debug-ray-interval", type=float, default=1.0, help="Ray 调试输出节流间隔(秒)")
     parser.add_argument(
+        "--target-contact-body-path",
+        type=str,
+        default="/World/Cylinder_Test",
+        help="持续跟踪的目标刚体 prim path",
+    )
+    parser.add_argument(
         "--usd-path",
         type=str,
         default=None,
@@ -945,8 +951,8 @@ def main() -> None:
     prim_transform_log_csv = os.path.join(ray_log_dir, f"prim_world_transforms_{run_id}.csv")
     contact_state_log_csv = os.path.join(ray_log_dir, f"contact_states_{run_id}.csv")
     taxel_contact_log_csv = os.path.join(ray_log_dir, f"taxel_contacts_{run_id}.csv")
-    tracked_prim_paths = ["/World/Cylinder_Test", "/World/BigRayCube"]
-    target_contact_body_path = "/World/Cylinder_Test"
+    target_contact_body_path = str(args.target_contact_body_path)
+    tracked_prim_paths = [target_contact_body_path, "/World/BigRayCube"]
     taxel_contact_tracker = PerTaxelContactTracker(
         local_origins=ray_local_origins,
         target_body_path=target_contact_body_path,
