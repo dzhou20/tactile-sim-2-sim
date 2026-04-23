@@ -40,7 +40,8 @@ python test/ray_open_test.py [options]
 ```
 
 Important options | 常用参数:
-- `--keep-open`: keep running until manual close. | 保持运行直到手动关闭。
+- `--keep-open`: keep running until manual close; without this flag, the script exits automatically after `--close-after-frames` (default: `120`). | 保持运行直到手动关闭；默认不加这个参数时，会在 `--close-after-frames` 指定的帧数后自动退出（默认：`120`）。
+- `--close-after-frames <n>`: number of update frames before auto-close when `--keep-open` is not set. | 未设置 `--keep-open` 时，自动关闭前更新的帧数。
 - `--ray-padding <meters>`: offset ray origins from the cube surface. | Ray 起点相对立方体表面的外偏移（米）。
 - `--ray-max-distance <meters>`: max ray query distance. | Ray 最大检测距离（米）。
 - `--ray-update-interval <sec>`: sampling interval. | 采样周期（秒）。
@@ -92,7 +93,7 @@ Important options | 常用参数:
 
 ## Common Examples | 常用命令示例
 
-### A. Default run (auto viewer)
+### A. Interactive run (auto viewer, keep open)
 ```bash
 python test/ray_open_test.py --keep-open --ray-padding 0.0005
 ```

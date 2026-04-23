@@ -11,42 +11,21 @@ import subprocess
 import atexit
 import signal
 
-# 不生成 __pycache__
+# not generate __pycache__
 sys.dont_write_bytecode = True
 
 # Isaac Sim 4.5.0: use isaacsim.simulation_app (not omni.isaac.kit)
 from isaacsim.simulation_app import SimulationApp
+from ray_utils import get_repo_root as _get_repo_root
+from ray_utils import resolve_repo_path as _resolve_repo_path
+from ray_utils import get_usd_path as _get_usd_path
 
-
-def _get_repo_root() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-
-def _resolve_repo_path(path: str) -> str:
-    if os.path.isabs(path):
-        return path
-    return os.path.join(_get_repo_root(), path)
-
-
-def _get_usd_path(usd_path: str | None = None) -> str:
-    repo_root = _get_repo_root()
-    default_path = os.path.join(repo_root, "assets", "isaac_sim", "ray_basic_test.usd")
-    if not usd_path:
-        return default_path
-    if os.path.isabs(usd_path):
-        return usd_path
-
-    cwd_path = os.path.abspath(usd_path)
-    if os.path.exists(cwd_path):
-        return cwd_path
-    return os.path.join(repo_root, usd_path)
-
-def _ensure_big_cube(stage, cube_path="/World/BigRayCube", size=0.2):
+def _ensure_sensor_body(stage, sensor_body_path="/World/BigRayCube", size=0.2):
     from pxr import UsdGeom, Gf
-    prim = stage.GetPrimAtPath(cube_path)
+    prim = stage.GetPrimAtPath(sensor_body_path)
     if prim and prim.IsValid():
         return prim
-    cube = UsdGeom.Cube.Define(stage, cube_path)
+    cube = UsdGeom.Cube.Define(stage, sensor_body_path)
     cube.CreateSizeAttr(size)
     UsdGeom.XformCommonAPI(cube).SetTranslate(Gf.Vec3d(0.0, 0.0, size * 0.5))
     return cube.GetPrim()
@@ -108,18 +87,18 @@ def _get_face_sign(face_selector: str) -> float:
 
 def _ensure_ray_marker(
     stage,
-    cube_path="/World/BigRayCube",
+    sensor_body_path="/World/BigRayCube",
     marker_path=None,
     padding=0.002,
     face_selector="+x",
 ):
     from pxr import UsdGeom, Gf
-    cube_prim = stage.GetPrimAtPath(cube_path)
-    if not cube_prim or not cube_prim.IsValid():
+    sensor_body_prim = stage.GetPrimAtPath(sensor_body_path)
+    if not sensor_body_prim or not sensor_body_prim.IsValid():
         return
     if marker_path is None:
-        marker_path = f"{cube_path}/RayMarker"
-    cube = UsdGeom.Cube(cube_prim)
+        marker_path = f"{sensor_body_path}/RayMarker"
+    cube = UsdGeom.Cube(sensor_body_prim)
     size = float(cube.GetSizeAttr().Get() or 0.2)
     half = size * 0.5
     face_sign = _get_face_sign(face_selector)
@@ -132,7 +111,7 @@ def _ensure_ray_marker(
 
 def _ensure_raycast_grid(
     stage,
-    cube_path="/World/BigRayCube",
+    sensor_body_path="/World/BigRayCube",
     grid_parent=None,
     grid_size=10,
     padding=0.002,
@@ -141,17 +120,17 @@ def _ensure_raycast_grid(
     from pxr import UsdGeom, Gf
 
     if grid_parent is None:
-        grid_parent = f"{cube_path}/RayGrid"
+        grid_parent = f"{sensor_body_path}/RayGrid"
 
     parent_prim = stage.GetPrimAtPath(grid_parent)
     if not parent_prim or not parent_prim.IsValid():
         parent_prim = UsdGeom.Xform.Define(stage, grid_parent).GetPrim()
 
-    cube_prim = stage.GetPrimAtPath(cube_path)
-    if not cube_prim or not cube_prim.IsValid():
+    sensor_body_prim = stage.GetPrimAtPath(sensor_body_path)
+    if not sensor_body_prim or not sensor_body_prim.IsValid():
         return []
 
-    cube = UsdGeom.Cube(cube_prim)
+    cube = UsdGeom.Cube(sensor_body_prim)
     size = float(cube.GetSizeAttr().Get() or 0.2)
     half = size * 0.5
     face_sign = _get_face_sign(face_selector)
@@ -177,14 +156,14 @@ def _ensure_raycast_grid(
     return origins_local
 
 
-def _compute_raycast_frame(stage, cube_path, local_origins, face_selector):
+def _compute_raycast_frame(stage, sensor_body_path, local_origins, face_selector):
     from pxr import UsdGeom, Gf, Usd
 
-    cube_prim = stage.GetPrimAtPath(cube_path)
-    if not cube_prim or not cube_prim.IsValid():
+    sensor_body_prim = stage.GetPrimAtPath(sensor_body_path)
+    if not sensor_body_prim or not sensor_body_prim.IsValid():
         return [], None
 
-    xform = UsdGeom.Xformable(cube_prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
+    xform = UsdGeom.Xformable(sensor_body_prim).ComputeLocalToWorldTransform(Usd.TimeCode.Default())
     face_sign = _get_face_sign(face_selector)
     local_dir = Gf.Vec3d(face_sign, 0.0, 0.0)
     world_origin = xform.Transform(Gf.Vec3d(0.0, 0.0, 0.0))
@@ -797,7 +776,7 @@ def main() -> None:
         simulation_app.update()
 
     stage = ctx.get_stage()
-    cube_path = "/World/BigRayCube"
+    sensor_body_path = "/World/BigRayCube"
     ray_local_origins = []
     if stage is not None:
         try:
@@ -811,17 +790,17 @@ def main() -> None:
         except Exception as exc:
             print(f"[WARN] Failed to read stage unit scale: {exc}")
 
-        cube_prim = _ensure_big_cube(stage, cube_path=cube_path)
-        _apply_rigidbody(cube_prim, mass=2.0, enable_gravity=True, kinematic=False)
+        sensor_body_prim = _ensure_sensor_body(stage, sensor_body_path=sensor_body_path)
+        _apply_rigidbody(sensor_body_prim, mass=2.0, enable_gravity=True, kinematic=False)
         _ensure_ray_marker(
             stage,
-            cube_path=cube_path,
+            sensor_body_path=sensor_body_path,
             padding=float(args.ray_padding),
             face_selector=args.ray_direction,
         )
         ray_local_origins = _ensure_raycast_grid(
             stage,
-            cube_path=cube_path,
+            sensor_body_path=sensor_body_path,
             grid_size=args.ray_grid_size,
             padding=float(args.ray_padding),
             face_selector=args.ray_direction,
@@ -844,7 +823,7 @@ def main() -> None:
     taxel_contact_tracker = PerTaxelContactTracker(
         local_origins=ray_local_origins,
         target_body_path=target_contact_body_path,
-        sensor_parent_prim_path=cube_path,
+        sensor_parent_prim_path=sensor_body_path,
         sensor_face_selector=args.ray_direction,
         tangential_k=args.tangential_k,
         tangential_c=args.tangential_c,
@@ -931,7 +910,7 @@ def main() -> None:
 
         world_ray_origins, world_ray_dir = _compute_raycast_frame(
             stage,
-            cube_path,
+            sensor_body_path,
             ray_local_origins,
             args.ray_direction,
         )
@@ -942,7 +921,7 @@ def main() -> None:
             world_ray_origins,
             world_ray_dir,
             args.ray_max_distance,
-            ignore_rigid_body=cube_path,
+            ignore_rigid_body=sensor_body_path,
             collect_debug=bool(args.debug_ray),
         )
         records, dt = signal_processor.update(distances, now)

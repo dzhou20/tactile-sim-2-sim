@@ -1,0 +1,86 @@
+<?xml version="1.0" ?>
+<robot name="gripper_urdf" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+<xacro:include filename="/home/andres/Documents/jiwon/create_asset/gripper_urdf_description/urdf/materials.xacro" />
+<xacro:include filename="/home/andres/Documents/jiwon/create_asset/gripper_urdf_description/urdf/gripper_urdf.trans" />
+<xacro:include filename="/home/andres/Documents/jiwon/create_asset/gripper_urdf_description/urdf/gripper_urdf.gazebo" />
+<link name="base_link">
+  <inertial>
+    <origin xyz="-3.8976421872587524e-05 0.005031022969519505 -0.018471415017622762" rpy="0 0 0"/>
+    <mass value="1.1963260015017612"/>
+    <inertia ixx="0.000695" iyy="0.001149" izz="0.001162" ixy="-0.0" iyz="6e-06" ixz="1e-06"/>
+  </inertial>
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="file:///home/andres/Documents/jiwon/create_asset/gripper_urdf_description/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="file:///home/andres/Documents/jiwon/create_asset/gripper_urdf_description/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+<link name="finger1_1">
+  <inertial>
+    <origin xyz="0.006267940831225318 -0.019307371798998357 0.037197711345199495" rpy="0 0 0"/>
+    <mass value="0.7015582516227633"/>
+    <inertia ixx="0.000915" iyy="0.001242" izz="0.000564" ixy="0.000115" iyz="0.0001" ixz="-0.000163"/>
+  </inertial>
+  <visual>
+    <origin xyz="-0.005 -0.023 -0.01025" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="file:///home/andres/Documents/jiwon/create_asset/gripper_urdf_description/meshes/finger1_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="-0.005 -0.023 -0.01025" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="file:///home/andres/Documents/jiwon/create_asset/gripper_urdf_description/meshes/finger1_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+<link name="finger2_1">
+  <inertial>
+    <origin xyz="-0.016267982103923186 0.01930737450738287 0.03719773168129449" rpy="0 0 0"/>
+    <mass value="0.7015578560870854"/>
+    <inertia ixx="0.000915" iyy="0.001242" izz="0.000564" ixy="0.000115" iyz="-0.0001" ixz="0.000163"/>
+  </inertial>
+  <visual>
+    <origin xyz="-0.005 0.023 -0.01025" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="file:///home/andres/Documents/jiwon/create_asset/gripper_urdf_description/meshes/finger2_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="-0.005 0.023 -0.01025" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="file:///home/andres/Documents/jiwon/create_asset/gripper_urdf_description/meshes/finger2_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+<joint name="finger1_slider" type="prismatic">
+  <origin xyz="0.005 0.023 0.01025" rpy="0 0 0"/>
+  <parent link="base_link"/>
+  <child link="finger1_1"/>
+  <axis xyz="1.0 0.0 0.0"/>
+  <limit upper="0.0" lower="0.0" effort="100" velocity="100"/>
+</joint>
+
+<joint name="finger2_slider" type="prismatic">
+  <origin xyz="0.005 -0.023 0.01025" rpy="0 0 0"/>
+  <parent link="base_link"/>
+  <child link="finger2_1"/>
+  <axis xyz="-1.0 0.0 0.0"/>
+  <limit upper="0.0" lower="0.0" effort="100" velocity="100"/>
+</joint>
+
+</robot>

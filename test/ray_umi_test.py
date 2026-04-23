@@ -5,7 +5,7 @@ import os
 import signal
 import sys
 
-from ray_open_test import _get_usd_path
+from ray_utils import get_usd_path as _get_usd_path
 
 # 不生成 __pycache__
 sys.dont_write_bytecode = True
@@ -13,7 +13,7 @@ sys.dont_write_bytecode = True
 # Isaac Sim 4.5.0: use isaacsim.simulation_app (not omni.isaac.kit)
 from isaacsim.simulation_app import SimulationApp
 
-DEFAULT_UMI_USD_PATH = "/home/dzhou20/epfl/sp_tactile_CREATE/create_asset/ur3_umi_0311.usd"
+DEFAULT_UMI_USD_PATH = "assets/isaac_sim/create_asset/ur3_umi_0311.usd"
 
 
 def _wait_for_stage_load(ctx, simulation_app: SimulationApp) -> None:
@@ -36,15 +36,31 @@ def _wait_for_stage_load(ctx, simulation_app: SimulationApp) -> None:
         simulation_app.update()
 
 
+def _debug_print_stage_prims(stage) -> None:
+    # Temporary debug helper: print the UMI stage prim tree to locate finger/body prim paths.
+    # Keep this logic in ray_umi_test.py only; remove it after the target prim path is confirmed.
+    print("[DEBUG] Stage prim traversal begin")
+    for prim in stage.Traverse():
+        path = prim.GetPath().pathString
+        type_name = prim.GetTypeName() or "<unknown>"
+        depth = max(0, path.count("/") - 1)
+        indent = "  " * depth
+        print(f"[DEBUG] {indent}{path} ({type_name})")
+    print("[DEBUG] Stage prim traversal end")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--keep-open", action="store_true", help="保持窗口打开直到手动关闭")
+    parser.set_defaults(keep_open=True)
+    parser.add_argument("--keep-open", dest="keep_open", action="store_true", help="保持窗口打开直到手动关闭（默认）")
+    parser.add_argument("--no-keep-open", dest="keep_open", action="store_false", help="按 close-after-frames 自动关闭")
     parser.add_argument("--close-after-frames", type=int, default=120, help="自动关闭前更新的帧数")
+    parser.add_argument("--debug-print-prims", action="store_true", help="打印 stage prim 树（调试时临时使用）")
     parser.add_argument(
         "--usd-path",
         type=str,
         default=DEFAULT_UMI_USD_PATH,
-        help="UMI USD 场景路径；默认打开 ur3_umi_1015.usd",
+        help="UMI USD 场景路径；默认打开 ur3_umi_0311.usd",
     )
     args = parser.parse_args()
 
@@ -73,6 +89,8 @@ def main() -> None:
     print(f"[INFO] Loaded UMI USD: {usd_path}")
     print(f"[INFO] Stage default prim: {default_prim_path}")
     print(f"[INFO] Stage metersPerUnit: {meters_per_unit}")
+    if args.debug_print_prims:
+        _debug_print_stage_prims(stage)
 
     stop_requested = False
 
