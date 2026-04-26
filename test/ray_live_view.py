@@ -106,12 +106,16 @@ def main() -> None:
     parser.add_argument("--delta-dot-vmax", type=float, default=1.0, help="delta_dot 图颜色最大值")
     parser.add_argument("--tangential-vmax", type=float, default=None, help="|d_t_A| 图颜色最大值")
     parser.add_argument("--quiver-scale", type=float, default=1000.0, help="切向箭头缩放因子")
+    parser.add_argument("--hide-tangential", action="store_true", help="隐藏切向面板（仅显示法向相关）")
     parser.add_argument("--parent-pid", type=int, default=0, help="父进程 PID（父进程退出时自动关闭）")
     args = parser.parse_args()
     args.json = _resolve_repo_path(args.json)
 
     plt.ion()
-    active_panels = ["force", "delta", "delta_dot", "tangential_mag", "tangential_vec", "contact_state"]
+    if args.hide_tangential:
+        active_panels = ["force", "delta", "delta_dot", "contact_state"]
+    else:
+        active_panels = ["force", "delta", "delta_dot", "tangential_mag", "tangential_vec", "contact_state"]
     if args.show_distance:
         active_panels = ["distance"] + active_panels
     panel_titles = {
@@ -132,31 +136,52 @@ def main() -> None:
             panel_axes[key] = ax
             panel_figs[key] = fig
     else:
-        if args.show_distance:
-            fig_main, axs = plt.subplots(3, 3)
-            flat_axes = axs.flatten()
-            panel_axes = {
-                "distance": flat_axes[0],
-                "force": flat_axes[1],
-                "delta": flat_axes[2],
-                "delta_dot": flat_axes[3],
-                "tangential_mag": flat_axes[4],
-                "tangential_vec": flat_axes[5],
-                "contact_state": flat_axes[6],
-            }
-            flat_axes[7].axis("off")
-            flat_axes[8].axis("off")
+        if args.hide_tangential:
+            if args.show_distance:
+                fig_main, axs = plt.subplots(1, 5)
+                flat_axes = axs.flatten()
+                panel_axes = {
+                    "distance": flat_axes[0],
+                    "force": flat_axes[1],
+                    "delta": flat_axes[2],
+                    "delta_dot": flat_axes[3],
+                    "contact_state": flat_axes[4],
+                }
+            else:
+                fig_main, axs = plt.subplots(2, 2)
+                flat_axes = axs.flatten()
+                panel_axes = {
+                    "force": flat_axes[0],
+                    "delta": flat_axes[1],
+                    "delta_dot": flat_axes[2],
+                    "contact_state": flat_axes[3],
+                }
         else:
-            fig_main, axs = plt.subplots(2, 3)
-            flat_axes = axs.flatten()
-            panel_axes = {
-                "force": flat_axes[0],
-                "delta": flat_axes[1],
-                "delta_dot": flat_axes[2],
-                "tangential_mag": flat_axes[3],
-                "tangential_vec": flat_axes[4],
-                "contact_state": flat_axes[5],
-            }
+            if args.show_distance:
+                fig_main, axs = plt.subplots(3, 3)
+                flat_axes = axs.flatten()
+                panel_axes = {
+                    "distance": flat_axes[0],
+                    "force": flat_axes[1],
+                    "delta": flat_axes[2],
+                    "delta_dot": flat_axes[3],
+                    "tangential_mag": flat_axes[4],
+                    "tangential_vec": flat_axes[5],
+                    "contact_state": flat_axes[6],
+                }
+                flat_axes[7].axis("off")
+                flat_axes[8].axis("off")
+            else:
+                fig_main, axs = plt.subplots(2, 3)
+                flat_axes = axs.flatten()
+                panel_axes = {
+                    "force": flat_axes[0],
+                    "delta": flat_axes[1],
+                    "delta_dot": flat_axes[2],
+                    "tangential_mag": flat_axes[3],
+                    "tangential_vec": flat_axes[4],
+                    "contact_state": flat_axes[5],
+                }
         fig_main.canvas.manager.set_window_title("ray_live_view")
         for key in active_panels:
             panel_figs[key] = fig_main
@@ -197,7 +222,8 @@ def main() -> None:
                 time.sleep(args.interval)
                 continue
 
-            grid_size = int(payload.get("grid_size", 10))
+            grid_rows = int(payload.get("grid_rows", payload.get("grid_size", 10)))
+            grid_cols = int(payload.get("grid_cols", payload.get("grid_size", 10)))
             max_distance = float(payload.get("max_distance", 0.5))
             d_max = max_distance if args.distance_max is None else float(args.distance_max)
             delta_vmax = d_max if args.delta_vmax is None else float(args.delta_vmax)
@@ -209,14 +235,14 @@ def main() -> None:
             tangential = _load_tangential_values(payload)
             contact_states = _load_contact_states(payload)
 
-            data_dist = np.full((grid_size, grid_size), np.nan, dtype=float)
-            data_force = np.full((grid_size, grid_size), np.nan, dtype=float)
-            data_delta = np.full((grid_size, grid_size), np.nan, dtype=float)
-            data_delta_dot = np.full((grid_size, grid_size), np.nan, dtype=float)
-            data_tangential_mag = np.full((grid_size, grid_size), np.nan, dtype=float)
-            data_tangential_y = np.zeros((grid_size, grid_size), dtype=float)
-            data_tangential_z = np.zeros((grid_size, grid_size), dtype=float)
-            data_contact_state = np.zeros((grid_size, grid_size), dtype=float)
+            data_dist = np.full((grid_rows, grid_cols), np.nan, dtype=float)
+            data_force = np.full((grid_rows, grid_cols), np.nan, dtype=float)
+            data_delta = np.full((grid_rows, grid_cols), np.nan, dtype=float)
+            data_delta_dot = np.full((grid_rows, grid_cols), np.nan, dtype=float)
+            data_tangential_mag = np.full((grid_rows, grid_cols), np.nan, dtype=float)
+            data_tangential_y = np.zeros((grid_rows, grid_cols), dtype=float)
+            data_tangential_z = np.zeros((grid_rows, grid_cols), dtype=float)
+            data_contact_state = np.zeros((grid_rows, grid_cols), dtype=float)
             for r, c, d in distances:
                 if d is None:
                     data_dist[int(r), int(c)] = np.nan
@@ -274,12 +300,12 @@ def main() -> None:
                     v = data_tangential_y * float(args.quiver_scale)
                     valid_mask = ~np.isnan(data_tangential_mag)
                     if panel_quivers[key] is None:
-                        xs, ys = np.meshgrid(np.arange(grid_size), np.arange(grid_size))
+                        xs, ys = np.meshgrid(np.arange(grid_cols), np.arange(grid_rows))
                         ax.set_title(panel_titles[key])
                         ax.set_xlabel("col")
                         ax.set_ylabel("row")
-                        ax.set_xlim(-0.5, grid_size - 0.5)
-                        ax.set_ylim(grid_size - 0.5, -0.5)
+                        ax.set_xlim(-0.5, grid_cols - 0.5)
+                        ax.set_ylim(grid_rows - 0.5, -0.5)
                         ax.set_aspect("equal")
                         ax.set_facecolor("white")
                         panel_quivers[key] = ax.quiver(
@@ -297,55 +323,55 @@ def main() -> None:
                             np.where(valid_mask, u, 0.0),
                             np.where(valid_mask, v, 0.0),
                         )
-                else:
-                    data = panel_data[key]
-                    vmin, vmax = _panel_limits(key, d_max, delta_vmax, tangential_vmax)
-                    if panel_images[key] is None:
-                        if key == "contact_state":
-                            panel_images[key] = ax.imshow(data, cmap=contact_state_cmap, norm=contact_state_norm)
-                        else:
-                            cmap_obj = plt.get_cmap(args.cmap).copy()
-                            cmap_obj.set_bad(color="white")
-                            panel_images[key] = ax.imshow(data, vmin=vmin, vmax=vmax, cmap=cmap_obj)
-                        ax.set_title(panel_titles[key])
-                        ax.set_xlabel("col")
-                        ax.set_ylabel("row")
-                        cbar = panel_figs[key].colorbar(panel_images[key], ax=ax)
-                        if key == "contact_state":
-                            cbar.set_ticks([0.0, 1.0, 2.0, 3.0])
-                            cbar.set_ticklabels(["none", "start", "hold", "end"])
-                        if args.show_text:
-                            rows = []
-                            for r in range(grid_size):
-                                row = []
-                                for c in range(grid_size):
-                                    t = ax.text(c, r, "", ha="center", va="center", color="white", fontsize=7)
-                                    row.append(t)
-                                rows.append(row)
-                            panel_text_grids[key] = rows
+                    continue
+                data = panel_data[key]
+                vmin, vmax = _panel_limits(key, d_max, delta_vmax, tangential_vmax)
+                if panel_images[key] is None:
+                    if key == "contact_state":
+                        panel_images[key] = ax.imshow(data, cmap=contact_state_cmap, norm=contact_state_norm)
                     else:
-                        panel_images[key].set_data(data)
-                    if key != "contact_state":
-                        panel_images[key].set_clim(vmin, vmax)
+                        cmap_obj = plt.get_cmap(args.cmap).copy()
+                        cmap_obj.set_bad(color="white")
+                        panel_images[key] = ax.imshow(data, vmin=vmin, vmax=vmax, cmap=cmap_obj)
+                    ax.set_title(panel_titles[key])
+                    ax.set_xlabel("col")
+                    ax.set_ylabel("row")
+                    cbar = panel_figs[key].colorbar(panel_images[key], ax=ax)
+                    if key == "contact_state":
+                        cbar.set_ticks([0.0, 1.0, 2.0, 3.0])
+                        cbar.set_ticklabels(["none", "start", "hold", "end"])
+                    if args.show_text:
+                        rows = []
+                        for r in range(grid_rows):
+                            row = []
+                            for c in range(grid_cols):
+                                t = ax.text(c, r, "", ha="center", va="center", color="white", fontsize=7)
+                                row.append(t)
+                            rows.append(row)
+                        panel_text_grids[key] = rows
+                else:
+                    panel_images[key].set_data(data)
+                if key != "contact_state":
+                    panel_images[key].set_clim(vmin, vmax)
 
-                    if args.show_text and panel_text_grids[key]:
-                        for r in range(grid_size):
-                            for c in range(grid_size):
-                                v = data[r, c]
-                                if key == "contact_state":
-                                    panel_text_grids[key][r][c].set_text(contact_state_labels.get(v, ""))
-                                else:
-                                    panel_text_grids[key][r][c].set_text("" if np.isnan(v) else f"{v:.3f}")
+                if args.show_text and panel_text_grids[key]:
+                    for r in range(grid_rows):
+                        for c in range(grid_cols):
+                            v = data[r, c]
+                            if key == "contact_state":
+                                panel_text_grids[key][r][c].set_text(contact_state_labels.get(v, ""))
+                            else:
+                                panel_text_grids[key][r][c].set_text("" if np.isnan(v) else f"{v:.3f}")
 
             if args.separate_windows:
                 for key in active_panels:
                     fig = panel_figs[key]
-                    fig.canvas.draw()
+                    fig.canvas.draw_idle()
                     fig.canvas.flush_events()
             else:
-                fig_main.canvas.draw()
+                fig_main.canvas.draw_idle()
                 fig_main.canvas.flush_events()
-            plt.pause(args.interval)
+            time.sleep(args.interval)
     finally:
         plt.close("all")
 

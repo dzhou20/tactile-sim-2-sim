@@ -77,7 +77,22 @@ Practical implication:
 - If rays hit another object, that hit may still appear in raw ray results, but it will not be treated as tracked target contact by this logic.
 - 如果 Ray 打到了别的物体，这些命中仍可能出现在原始 ray 结果里，但不会被这套逻辑当作“持续跟踪的目标接触”。
 
-### 2) External viewer script | 外部可视化脚本
+### 2) UMI scene quick check | UMI 场景快速检查
+
+```bash
+python test/ray_umi_test.py [options]
+```
+
+This script opens the UMI USD scene for quick inspection. By default it loads `assets/isaac_sim/create_asset/ur3_umi_0311.usd` and keeps the Isaac Sim window open until manual close.
+这个脚本用于快速打开和检查 UMI USD 场景。默认加载 `assets/isaac_sim/create_asset/ur3_umi_0311.usd`，并保持 Isaac Sim 窗口打开直到手动关闭。
+
+Important options | 常用参数:
+- `--usd-path <path>`: override the default UMI USD path. | 覆盖默认的 UMI USD 路径。
+- `--no-keep-open`: close automatically after `--close-after-frames`. | 按 `--close-after-frames` 自动关闭。
+- `--close-after-frames <n>`: number of update frames before auto-close. | 自动关闭前更新的帧数。
+- `--debug-print-prims`: print the loaded stage prim tree for temporary debugging. | 打印已加载 stage 的 prim 树，用于临时调试。
+
+### 3) External viewer script | 外部可视化脚本
 
 ```bash
 python test/ray_live_view.py [options]
